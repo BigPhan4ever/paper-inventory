@@ -68,8 +68,9 @@
   </div>
 
   <div class="card">
-    <button class="secondary" id="exportBtn">Export Inventory</button>
-    <button class="secondary" id="importBtn">Import / Restore</button>
+    <button class="primary" id="exportCSVBtn">Export Inventory to CSV</button>
+    <button class="secondary" id="exportBackupBtn" style="margin-top:10px;width:100%">Export Backup (JSON)</button>
+    <button class="secondary" id="importBtn" style="margin-top:10px;width:100%">Import / Restore Backup</button>
     <input id="importFile" type="file" accept=".json,application/json" style="display:none">
     <button class="danger" id="clearBtn" style="margin-top:10px;width:100%">Clear Entire Inventory</button>
     <p class="small">Inventory is stored locally on this iPad/browser. Export a backup before clearing or moving to another device.</p>
@@ -201,6 +202,26 @@ function render() {
 function esc(s) {
   return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
+function csvEscape(value) {
+  const s = String(value ?? "");
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+function exportCSV() {
+  const rows = [
+    ["Item Name", "Description / Size", "Cases"],
+    ...inventory.slice().sort((a,b)=>a.name.localeCompare(b.name))
+      .map(x => [x.name, x.desc || "", x.qty])
+  ];
+  const csv = rows.map(row => row.map(csvEscape).join(",")).join("\r\n");
+  const blob = new Blob(["\ufeff" + csv], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "paper-envelope-inventory.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
 function exportInventory() {
   const payload={version:1, exported:new Date().toISOString(), inventory};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
@@ -270,7 +291,8 @@ document.getElementById("scanAddBtn").onclick=()=>{
   addItem(n,d,1); scanDialog.close();
 };
 
-document.getElementById("exportBtn").onclick=exportInventory;
+document.getElementById("exportCSVBtn").onclick=exportCSV;
+document.getElementById("exportBackupBtn").onclick=exportInventory;
 document.getElementById("importBtn").onclick=()=>document.getElementById("importFile").click();
 document.getElementById("importFile").onchange=e=>{if(e.target.files[0])importInventory(e.target.files[0]); e.target.value="";};
 document.getElementById("clearBtn").onclick=async()=>{
