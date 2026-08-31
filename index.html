@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Paper & Envelope Inventory</title>
+<style>
+  :root { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:#17202a; background:#f4f5f7; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#f4f5f7; }
+  header { position:sticky; top:0; z-index:5; background:#fff; padding:18px 16px 12px; border-bottom:1px solid #ddd; }
+  h1 { margin:0 0 4px; font-size:24px; }
+  .summary { color:#666; font-size:14px; }
+  main { max-width:760px; margin:auto; padding:14px; }
+  button, input { font:inherit; }
+  button { min-height:48px; border:0; border-radius:12px; padding:10px 16px; font-weight:600; cursor:pointer; }
+  .primary { background:#1769aa; color:white; }
+  .secondary { background:#e6e9ed; color:#17202a; }
+  .danger { background:#fbe3e3; color:#9b1c1c; }
+  .actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+  .card { background:#fff; border:1px solid #ddd; border-radius:14px; padding:14px; margin-bottom:12px; }
+  label { display:block; font-size:14px; font-weight:600; margin:10px 0 6px; }
+  input[type=text], input[type=number], input[type=file] {
+    width:100%; padding:13px; border:1px solid #bbb; border-radius:10px; background:#fff;
+  }
+  .item { display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; }
+  .name { font-weight:700; font-size:17px; }
+  .desc { color:#666; margin-top:3px; font-size:14px; white-space:pre-wrap; }
+  .qty { font-size:23px; font-weight:700; text-align:center; min-width:80px; }
+  .unit { display:block; font-size:12px; font-weight:500; color:#666; }
+  .stepper { display:flex; gap:7px; align-items:center; justify-content:flex-end; margin-top:8px; }
+  .stepper button { min-width:46px; min-height:42px; padding:6px 10px; }
+  .search { margin-bottom:12px; }
+  .empty { text-align:center; color:#666; padding:30px 10px; }
+  .small { font-size:12px; color:#666; line-height:1.4; }
+  dialog { width:min(680px,94vw); border:0; border-radius:16px; padding:0; box-shadow:0 10px 50px #0004; }
+  dialog::backdrop { background:#0006; }
+  .dialog-body { padding:18px; }
+  .dialog-body h2 { margin-top:0; }
+  .dialog-buttons { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px; }
+  #scanInput { display:none; }
+  .scan-preview { width:100%; max-height:280px; object-fit:contain; border-radius:10px; margin-top:10px; background:#eee; display:none; }
+  .notice { padding:10px 12px; background:#eef5fb; border-radius:10px; font-size:13px; margin-top:10px; }
+  @media (max-width:520px) {
+    .actions { grid-template-columns:1fr; }
+    .item { grid-template-columns:1fr; }
+    .stepper { justify-content:flex-start; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Paper & Envelope Inventory</h1>
+  <div class="summary" id="summary">0 items • 0 cases</div>
+</header>
+
+<main>
+  <div class="actions">
+    <button class="primary" id="scanBtn">📷 Scan / Photograph Label</button>
+    <button class="secondary" id="manualBtn">✏️ Enter Item Manually</button>
+  </div>
+
+  <div class="card">
+    <input class="search" id="search" type="text" placeholder="Search inventory…">
+    <div id="inventory"></div>
+  </div>
+
+  <div class="card">
+    <button class="secondary" id="exportBtn">Export Inventory</button>
+    <button class="secondary" id="importBtn">Import / Restore</button>
+    <input id="importFile" type="file" accept=".json,application/json" style="display:none">
+    <button class="danger" id="clearBtn" style="margin-top:10px;width:100%">Clear Entire Inventory</button>
+    <p class="small">Inventory is stored locally on this iPad/browser. Export a backup before clearing or moving to another device.</p>
+  </div>
+</main>
+
+<!-- Camera/photo dialog -->
+<dialog id="scanDialog">
+  <div class="dialog-body">
+    <h2>Scan / Photograph Label</h2>
+    <p>Use the iPad's built-in <strong>Scan Text / Live Text</strong> feature to put the label text directly into the box below. You can also photograph the label for reference.</p>
+    <input id="scanInput" type="file" accept="image/*" capture="environment">
+    <button class="primary" id="takePhotoBtn" style="width:100%">📷 Photograph Label</button>
+    <img id="preview" class="scan-preview" alt="Label preview">
+    <label for="scanText">Label / Item Information</label>
+    <textarea id="scanText" rows="5" inputmode="text" style="width:100%;padding:12px;border:1px solid #bbb;border-radius:10px;font:inherit" placeholder="Tap here, then use the iPad keyboard's camera/Scan Text option to capture the label text…"></textarea>
+    <div class="notice"><strong>On iPad:</strong> tap inside this box to bring up the keyboard, then tap the <strong>camera icon / Scan Text</strong> option (the exact button varies by iPadOS version). Point the camera at the label and insert the detected text. This uses Apple's built-in Live Text recognition and does not require internet access or an OCR library.</div>
+    <div class="notice" id="barcodeNotice">If your label has a barcode, the app will also try the browser's built-in barcode detector when available. Barcode support varies by iPadOS/Safari version.</div>
+    <div class="dialog-buttons">
+      <button class="secondary" onclick="scanDialog.close()">Cancel</button>
+      <button class="primary" id="scanAddBtn">Add 1 Case</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Manual dialog -->
+<dialog id="manualDialog">
+  <div class="dialog-body">
+    <h2>Add Item</h2>
+    <label for="itemName">Item name</label>
+    <input id="itemName" type="text" placeholder="e.g. Hammermill Premium">
+    <label for="itemDesc">Description / size</label>
+    <input id="itemDesc" type="text" placeholder="e.g. 8.5 × 11, 24 lb, White">
+    <label for="itemQty">Number of cases</label>
+    <input id="itemQty" type="number" min="1" step="1" value="1">
+    <div class="dialog-buttons">
+      <button class="secondary" onclick="manualDialog.close()">Cancel</button>
+      <button class="primary" id="manualAddBtn">Add to Inventory</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+
+const DB_NAME = "paper-envelope-inventory";
+const STORE = "inventory";
+let db;
+let inventory = [];
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(STORE, {keyPath:"id"});
+    req.onsuccess = () => { db=req.result; resolve(); };
+    req.onerror = () => reject(req.error);
+  });
+}
+function loadDB() {
+  return new Promise((resolve,reject) => {
+    const tx=db.transaction(STORE,"readonly"), req=tx.objectStore(STORE).getAll();
+    req.onsuccess=()=>resolve(req.result || []);
+    req.onerror=()=>reject(req.error);
+  });
+}
+function saveDB() {
+  return new Promise((resolve,reject) => {
+    const tx=db.transaction(STORE,"readwrite"), store=tx.objectStore(STORE);
+    store.clear();
+    inventory.forEach(x=>store.put(x));
+    tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error);
+  });
+}
+function key(name, desc) {
+  return (name + " | " + desc).trim().toLowerCase().replace(/\s+/g," ");
+}
+function addItem(name, desc, qty=1) {
+  name=name.trim(); desc=desc.trim();
+  if(!name) return false;
+  const k=key(name,desc);
+  let item=inventory.find(x=>x.key===k);
+  if(item) item.qty += qty;
+  else inventory.push({id:crypto.randomUUID ? crypto.randomUUID() : Date.now()+"-"+Math.random(), key:k, name, desc, qty});
+  saveDB(); render(); return true;
+}
+function changeQty(id, delta) {
+  const item=inventory.find(x=>x.id===id);
+  if(!item) return;
+  item.qty += delta;
+  if(item.qty<=0 && confirm("Remove this item from inventory?")) inventory=inventory.filter(x=>x.id!==id);
+  else if(item.qty<=0) item.qty=1;
+  saveDB(); render();
+}
+function editItem(id) {
+  const item=inventory.find(x=>x.id===id);
+  if(!item) return;
+  const name=prompt("Item name:", item.name);
+  if(name===null) return;
+  const desc=prompt("Description / size:", item.desc);
+  if(desc===null) return;
+  const k=key(name,desc);
+  const duplicate=inventory.find(x=>x.id!==id && x.key===k);
+  if(duplicate) { duplicate.qty += item.qty; inventory=inventory.filter(x=>x.id!==id); }
+  else { item.name=name.trim(); item.desc=desc.trim(); item.key=k; }
+  saveDB(); render();
+}
+function render() {
+  const q=document.getElementById("search").value.trim().toLowerCase();
+  const list=inventory.filter(x=>(x.name+" "+x.desc).toLowerCase().includes(q))
+    .sort((a,b)=>a.name.localeCompare(b.name));
+  const total=inventory.reduce((s,x)=>s+x.qty,0);
+  document.getElementById("summary").textContent=`${inventory.length} item${inventory.length===1?"":"s"} • ${total} case${total===1?"":"s"}`;
+  const box=document.getElementById("inventory");
+  if(!list.length) { box.innerHTML='<div class="empty">No inventory items yet.</div>'; return; }
+  box.innerHTML=list.map(x=>`
+    <div class="card item">
+      <div>
+        <div class="name">${esc(x.name)}</div>
+        <div class="desc">${esc(x.desc || "")}</div>
+        <div class="stepper">
+          <button class="secondary" onclick="changeQty('${x.id}',-1)">−</button>
+          <div class="qty">${x.qty}<span class="unit">cases</span></div>
+          <button class="primary" onclick="changeQty('${x.id}',1)">+</button>
+          <button class="secondary" onclick="editItem('${x.id}')">Edit</button>
+        </div>
+      </div>
+    </div>`).join("");
+}
+function esc(s) {
+  return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function exportInventory() {
+  const payload={version:1, exported:new Date().toISOString(), inventory};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download="paper-envelope-inventory-backup.json"; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function importInventory(file) {
+  const r=new FileReader();
+  r.onload=async()=>{
+    try {
+      const data=JSON.parse(r.result);
+      const incoming=Array.isArray(data) ? data : data.inventory;
+      if(!Array.isArray(incoming)) throw new Error();
+      if(!confirm("Replace the current inventory with this backup?")) return;
+      inventory=incoming.filter(x=>x && x.name).map(x=>({
+        id:x.id || (crypto.randomUUID ? crypto.randomUUID() : Date.now()+"-"+Math.random()),
+        name:String(x.name), desc:String(x.desc||""), qty:Math.max(1,Number(x.qty)||1),
+        key:key(String(x.name),String(x.desc||""))
+      }));
+      await saveDB(); render(); alert("Inventory restored.");
+    } catch(e) { alert("That file could not be imported."); }
+  };
+  r.readAsText(file);
+}
+
+document.getElementById("search").addEventListener("input",render);
+
+document.getElementById("manualBtn").onclick=()=>{
+  itemName.value=""; itemDesc.value=""; itemQty.value=1; manualDialog.showModal();
+};
+document.getElementById("manualAddBtn").onclick=()=>{
+  const n=itemName.value.trim(), d=itemDesc.value.trim(), q=Math.max(1,parseInt(itemQty.value,10)||1);
+  if(!n){alert("Enter an item name."); return;}
+  addItem(n,d,q); manualDialog.close();
+};
+
+document.getElementById("scanBtn").onclick=()=>{
+  scanText.value=""; preview.style.display="none"; preview.src="";
+  scanDialog.showModal();
+};
+document.getElementById("takePhotoBtn").onclick=()=>scanInput.click();
+document.getElementById("scanInput").onchange=async()=>{
+  const file=scanInput.files[0]; if(!file)return;
+  preview.src=URL.createObjectURL(file); preview.style.display="block";
+  // Use the browser's native BarcodeDetector when available. iPad Safari support varies.
+  if("BarcodeDetector" in window) {
+    try {
+      const detector=new BarcodeDetector();
+      const codes=await detector.detect(preview);
+      if(codes.length) {
+        const vals=codes.map(c=>c.rawValue).filter(Boolean);
+        scanText.value=(scanText.value ? scanText.value+"\n" : "")+"Barcode: "+vals.join(", ");
+      }
+    } catch(e) {}
+  }
+};
+document.getElementById("scanAddBtn").onclick=()=>{
+  const text=scanText.value.trim();
+  if(!text){alert("Scan or enter the label information first."); return;}
+  // Treat the first meaningful line as the item name and the remaining lines as description.
+  const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const n=lines.shift(), d=lines.join(" • ");
+  // Before adding, check for a likely existing match using normalized text.
+  const exact=inventory.find(x=>key(x.name,x.desc)===key(n,d));
+  if(exact) { exact.qty+=1; saveDB(); render(); scanDialog.close(); alert(`${exact.name}\nQuantity is now ${exact.qty} cases.`); return; }
+  addItem(n,d,1); scanDialog.close();
+};
+
+document.getElementById("exportBtn").onclick=exportInventory;
+document.getElementById("importBtn").onclick=()=>document.getElementById("importFile").click();
+document.getElementById("importFile").onchange=e=>{if(e.target.files[0])importInventory(e.target.files[0]); e.target.value="";};
+document.getElementById("clearBtn").onclick=async()=>{
+  if(confirm("Delete the entire inventory? This cannot be undone unless you exported a backup.")){
+    inventory=[]; await saveDB(); render();
+  }
+};
+
+(async()=>{
+  try {
+    await openDB();
+    inventory=await loadDB();
+    render();
+  } catch(e) {
+    document.getElementById("inventory").innerHTML='<div class="empty">Local storage could not be opened in this browser. Export backups regularly.</div>';
+  }
+})();
+</script>
+</body>
+</html>
